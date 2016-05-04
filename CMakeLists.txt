@@ -39,7 +39,7 @@ if(APPLE) # WAR otherwise MacPorts X11 (/opt/local) is preferred
 endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-  git_subproject(Tuvok https://github.com/BlueBrain/Tuvok.git bbp)
+  git_subproject(Tuvok https://github.com/BlueBrain/Tuvok.git aa30403)
 endif()
 
 common_package(BBPTestData)
