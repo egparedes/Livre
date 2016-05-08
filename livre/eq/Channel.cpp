@@ -58,6 +58,8 @@
 #include <eq/eq.h>
 #include <eq/gl.h>
 
+#define LOG_SORTLAST_DECOMPOSITION 1
+
 namespace livre
 {
 
@@ -260,14 +262,28 @@ public:
         // Create initial convex sets and occupancy map
         ConvexSetMap setMap;
         const uint32_t maxLevel = ( 1 << livre::NODEID_LEVEL_BITS ) - 1;
+
+#ifdef LOG_SORTLAST_DECOMPOSITION
+        static unsigned frameCount = 0;
+        static const std::string channelName( _channel->getName());
+        //static const uint128_t channelID( _channel->getID());
+        const double normFactor = 1.0 / double( 1u << ( 1 << livre::NODEID_LEVEL_BITS ));
+#endif
         for( const livre::NodeId& nodeId : nodeIds )
         {
             const uint32_t factor = 1 << ( maxLevel - nodeId.getLevel());
             const Vector3ui position = factor * nodeId.getPosition();
             const Boxui nodeBox( position, position + Vector3ui( factor ));
+#ifdef LOG_SORTLAST_DECOMPOSITION
+            LBINFO << " [SORT-LAST] '" << channelName << "' " << std::setfill('0') << std::setw(3) << frameCount << " node "
+                   << std::setfill(' ') << std::setw(0);
+            LBINFO << normFactor * Vector3d(nodeBox.getMin()) << " "
+                   << normFactor * Vector3d(nodeBox.getMax()) << std::endl;
+#endif
             setMap[position] = ConvexSet( setMap.size(), nodeBox);
         }
 
+#if 1
         // Merge adjacent compatible sets
         bool merged = false;
         bool extraPass = false;
@@ -309,12 +325,35 @@ public:
                 extraPass = false;
             }
         }
+#endif
+        // Optimization for trivial case
+        if( setMap.size() == 1 )
+        {
+            renderSets.push_back( renderBricks );
+#ifdef LOG_SORTLAST_DECOMPOSITION
+            const ConvexSet& set = setMap.begin()->second;
+            LBINFO << " trivial [SORT-LAST] '" << channelName << "' " << std::setfill('0') << std::setw(3) << frameCount << " set "
+                   << std::setfill(' ') << std::setw(0);
+            LBINFO << normFactor * Vector3d(set.box.getMin()) << " "
+                   << normFactor * Vector3d(set.box.getMax()) << std::endl;
+            frameCount++;
+#endif
+            return;
+        }
 
+        LBASSERT( setMap.size() > 1 );
         renderSets.reserve( setMap.size() );
         for( auto setIt = setMap.begin(); setIt != setMap.end(); ++setIt )
         {
             const ConvexSet& set = setIt->second;
 
+#ifdef LOG_SORTLAST_DECOMPOSITION
+            LBINFO << " [SORT-LAST] '" << channelName << "' " << std::setfill('0') << std::setw(3) << frameCount << " set "
+                   << std::setfill(' ') << std::setw(0);
+            LBINFO << normFactor * Vector3d(set.box.getMin()) << " "
+                   << normFactor * Vector3d(set.box.getMax()) << std::endl;
+            frameCount++;
+#endif
             renderSets.push_back( RenderBricks( ));
             renderSets.back().reserve( set.nodeIndexes.size());
             for( auto nodeIdxIt = set.nodeIndexes.begin();
