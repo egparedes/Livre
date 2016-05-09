@@ -38,10 +38,6 @@ if(APPLE) # WAR otherwise MacPorts X11 (/opt/local) is preferred
   include_directories(SYSTEM /opt/X11/include /usr/X11R6/include)
 endif()
 
-if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-  git_subproject(Tuvok https://github.com/BlueBrain/Tuvok.git aa30403)
-endif()
-
 common_package(BBPTestData)
 common_package(Boost REQUIRED COMPONENTS filesystem program_options thread
                                          system regex unit_test_framework)
