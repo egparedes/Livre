@@ -18,7 +18,7 @@ channel_colors = dict()
 with open(sys.argv[1], 'r') as f_input:
     for line in f_input:
         fields = line.split()
-        #print('fields', fields)
+        print('fields', fields)
         assert len(fields) == 13
 
         channel_id = fields[0].replace("'", "")
@@ -54,6 +54,7 @@ with open(sys.argv[1], 'r') as f_input:
         #print('corners', corners)
 
         print('# ---- box {0} ----'.format(box_count), file=f_output)
+        print('usemtl mtl_{0}_{1}'.format(color_map, min(box_count, 127)), file=f_output)
         print('v', corners[0], corners[1], corners[2], file=f_output)
         print('v', corners[3], corners[1], corners[2], file=f_output)
         print('v', corners[0], corners[4], corners[2], file=f_output)
@@ -66,7 +67,6 @@ with open(sys.argv[1], 'r') as f_input:
         base = 8 * box_count + 1
         print('', file=f_output)
         print('g box_{0}'.format(box_count), file=f_output)
-        print('usemtl mtl_{0}_{1}'.format(color_map, min(box_count, 127)), file=f_output)
         print('f', base, base+1, base+2, file=f_output)   # front
         print('f', base+1, base+3, base+2, file=f_output)
         print('f', base+4, base+5, base+6, file=f_output)   # back
