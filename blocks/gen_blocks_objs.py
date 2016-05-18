@@ -18,7 +18,7 @@ channel_colors = dict()
 with open(sys.argv[1], 'r') as f_input:
     for line in f_input:
         fields = line.split()
-        print('fields', fields)
+        #print('fields', fields)
         assert len(fields) == 13
 
         channel_id = fields[0].replace("'", "")
