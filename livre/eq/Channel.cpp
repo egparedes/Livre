@@ -123,36 +123,40 @@ public:
 const float nearPlane = 0.1f;
 const float farPlane = 15.0f;
 
+
 /**
- * The ConvexSet class implements a LODNnode convex set container for internal
+ * The RenderSet class implements a convex set container of RenderBricks for internal
  * use of \see livre::detail::Channel.
  */
-struct ConvexSet
+struct RenderSet
 {
-    inline ConvexSet() {}
+    inline RenderSet() {}
 
-    inline ConvexSet( size_t nodeIdx, const Boxui& setBox )
-        : box( setBox )
-        , nodeIndexes{ nodeIdx }
+    inline RenderSet( const RenderBricks& setBricks, const Boxui& setLodBox,
+                      const Boxf& setWorldBox )
+        : bricks( setBricks )
+        , lodBox( setLodBox )
+        , worldBox( setWorldBox )
     {}
 
-    inline void merge( const ConvexSet& convexSet )
+    inline void merge( const RenderSet& anotherSet )
     {
-        box.merge( convexSet.box );
-        nodeIndexes.insert( nodeIndexes.end(),
-                            convexSet.nodeIndexes.begin(),
-                            convexSet.nodeIndexes.end() );
+        bricks.insert( bricks.end(),
+                       anotherSet.bricks.begin(), anotherSet.bricks.end() );
+        lodBox.merge( anotherSet.lodBox );
+        worldBox.merge( anotherSet.worldBox );
     }
 
-    Boxui box;
-    std::list< size_t > nodeIndexes;
+    RenderBricks bricks;
+    Boxui lodBox;
+    Boxf worldBox;
 };
 
-typedef std::map< Vector3ui, ConvexSet > ConvexSetMap;
+typedef std::vector< RenderSet > RenderSets;
 
 class Channel
 {
-public:
+public:   
     explicit Channel( livre::Channel* channel )
           : _channel( channel )
           , _glWidgetPtr( new EqGLWidget( channel ))
@@ -232,16 +236,16 @@ public:
     }
 
 #ifdef LOG_SORTLAST_DECOMPOSITION
-    void logSortLast( const Boxui& box, const std::string& element,
-                      const std::string& tag="" )
+    void logRenderSet( const int frameCount,
+                       const Boxf& setBox,
+                       const std::string& element,
+                       const std::string& tag) const
     {
-        static const double normFactor = 1.0 / double( 1u << ( 1 << livre::NODEID_LEVEL_BITS ));
-
-        LBINFO << tag << " [SORT-LAST] '" << _channel->getName() << "' "
-               << std::setfill('0') << std::setw(3) << _frameCount
-               << " " << element << " " << std::setfill(' ') << std::setw(0);
-        LBINFO << normFactor * Vector3d(box.getMin()) << " "
-               << normFactor * Vector3d(box.getMax()) << std::endl;
+        LBINFO << " [SORT-LAST] "
+               << std::setfill('0') << std::setw(3) << frameCount << std::setfill(' ') << std::setw(0)
+               << " '" << _channel->getName() << "' " << element << " " << tag << " "
+               << setBox.getMin() << " "
+               << setBox.getMax() << std::endl;
     }
 #endif
 
@@ -252,13 +256,9 @@ public:
             return;
 
         RenderBricks renderBricks;
-        std::vector< livre::NodeId > nodeIds;
         renderBricks.reserve( renderNodes.size( ));
-        nodeIds.reserve( renderNodes.size( ));
-
         livre::Node* node = static_cast< livre::Node* >( _channel->getNode( ));
         DashTreePtr dashTree = node->getDashTree();
-
         for( const ConstCacheObjectPtr& cacheObject: renderNodes )
         {
             const ConstTextureObjectPtr texture =
@@ -267,57 +267,53 @@ public:
                 dashTree->getDataSource()->getNode( NodeId( cacheObject->getId( )));
             renderBricks.push_back( RenderBrickPtr(
                 new RenderBrick( lodNode, texture->getTextureState( ))));
-            nodeIds.push_back( lodNode.getNodeId( ));
         }
 
-        if( _channel->getRange() == eq::Range::ALL )
+        if( !useDBRenderMode( )) // 2D/sort-first render
         {
-            renderSets.push_back( renderBricks );
+            renderSets.push_back( RenderSet( renderBricks, Boxui(), Boxf( )));
             return;
         }
 
-        // Create initial convex sets and occupancy map
-        ConvexSetMap setMap;
-        const uint32_t maxLevel = ( 1 << livre::NODEID_LEVEL_BITS ) - 1;
-
-        for( const livre::NodeId& nodeId : nodeIds )
+        // Create initial occupancy map
+        std::map< Vector3ui, RenderSet > occupancyMap;
+        for( const RenderBrickPtr& brick : renderBricks )
         {
-            const uint32_t factor = 1 << ( maxLevel - nodeId.getLevel());
-            const Vector3ui position = factor * nodeId.getPosition();
-            const Boxui nodeBox( position, position + Vector3ui( factor ));
+            const Boxui box = brick->getLODNode().getAbsoluteWorldBox();
+            const Vector3ui& position = box.getMin();
+            occupancyMap[position] = RenderSet({brick}, box, brick->getLODNode().getWorldBox( ));
 #ifdef LOG_SORTLAST_DECOMPOSITION
-            logSortLast( nodeBox, "node" );
+            logRenderSet( _frameCount, occupancyMap[position].worldBox, "node", "RENDER" );
 #endif
-            setMap[position] = ConvexSet( setMap.size(), nodeBox);
         }
 
-        // Merge adjacent compatible sets
+        // Merge adjacent compatible sets (greedy)
         bool merged = false;
         bool extraPass = false;
-        ConvexSetMap::iterator it = setMap.begin();
-        while ( it != setMap.end( ))
+        std::map< Vector3ui, RenderSet >::iterator it = occupancyMap.begin();
+        while ( it != occupancyMap.end( ))
         {
             merged = false;
             for( size_t axis = 0; !merged && axis < 3; ++axis )
             {
-                ConvexSet& set = it->second;
-                Vector3ui mergePoint = set.box.getMin();
-                mergePoint[axis] = set.box.getMax()[axis];
+                RenderSet& set = it->second;
+                Vector3ui mergePoint = set.lodBox.getMin();
+                mergePoint[axis] = set.lodBox.getMax()[axis];
 
-                if( setMap.find( mergePoint) != setMap.end())
+                if( occupancyMap.find( mergePoint) != occupancyMap.end())
                 {
-                    const ConvexSet& candidate = setMap[mergePoint];
+                    const RenderSet& candidate = occupancyMap[mergePoint];
 
-                    if( set.box.getSize()[( axis + 1 ) % 3] ==
-                            candidate.box.getSize()[( axis + 1 ) % 3] &&
-                        set.box.getSize()[( axis + 2 ) % 3] ==
-                            candidate.box.getSize()[( axis + 2 ) % 3] )
+                    if( set.lodBox.getSize()[( axis + 1 ) % 3] ==
+                            candidate.lodBox.getSize()[( axis + 1 ) % 3] &&
+                        set.lodBox.getSize()[( axis + 2 ) % 3] ==
+                            candidate.lodBox.getSize()[( axis + 2 ) % 3] )
                     {
-                        LBASSERT( setMap.find( mergePoint) != it );
+                        LBASSERT( occupancyMap.find( mergePoint) != it );
                         set.merge( candidate );
-                        setMap.erase( mergePoint );
+                        occupancyMap.erase( mergePoint );
                         merged = true;
-                        if( it != setMap.begin( ))
+                        if( it != occupancyMap.begin( ))
                             extraPass = true;
                     };
                 }
@@ -326,41 +322,21 @@ public:
             if( !merged )
                 ++it;
 
-            if( it == setMap.end() && extraPass )
+            if( it == occupancyMap.end() && extraPass )
             {
-                it = setMap.begin();
+                it = occupancyMap.begin();
                 extraPass = false;
             }
         }
 
-        // Optimization for trivial case
-        if( setMap.size() == 1 )
+        renderSets.reserve( occupancyMap.size() );
+        for( auto setIt = occupancyMap.begin(); setIt != occupancyMap.end(); ++setIt )
         {
-            renderSets.push_back( renderBricks );
+            const RenderSet& set = setIt->second;
+            renderSets.push_back( set );
 #ifdef LOG_SORTLAST_DECOMPOSITION
-        logSortLast( setMap.begin()->second.box, "set", "trivial");
-        _frameCount++;
+            logRenderSet( _frameCount, set.worldBox, "set", "RENDER" );
 #endif
-            return;
-        }
-
-        LBASSERT( setMap.size() > 1 );
-        renderSets.reserve( setMap.size() );
-        for( auto setIt = setMap.begin(); setIt != setMap.end(); ++setIt )
-        {
-            const ConvexSet& set = setIt->second;
-
-#ifdef LOG_SORTLAST_DECOMPOSITION
-        logSortLast( set.box, "set" );
-#endif
-            renderSets.push_back( RenderBricks( ));
-            renderSets.back().reserve( set.nodeIndexes.size());
-            for( auto nodeIdxIt = set.nodeIndexes.begin();
-                 nodeIdxIt != set.nodeIndexes.end();
-                 ++nodeIdxIt )
-            {
-                renderSets.back().push_back( renderBricks[ *nodeIdxIt ]);
-            }
         }
 #ifdef LOG_SORTLAST_DECOMPOSITION
         _frameCount++;
@@ -434,8 +410,6 @@ public:
                 region[1] = std::min( corner[1], region[1] );
                 region[2] = std::max( corner[0], region[2] );
                 region[3] = std::max( corner[1], region[3] );
-                range[0] = std::min( corner[2], range[0] );
-                range[1] = std::max( corner[2], range[1] );
             }
 
             // transform ROI from [ -1 -1 1 1 ] to normalized viewport
@@ -443,12 +417,8 @@ public:
                                        region[1] * .5f + .5f,
                                        ( region[2] - region[0] ) * .5f,
                                        ( region[3] - region[1] ) * .5f );
-            // transform range to [-1 1 ] to normalized [ 0, 1] range
-            eq::Range normalizedRange ( std::max( 0.f, range[0] * .5f + .5f),
-                                        std::min(1.f, range[1] * .5f + .5f ));
 
             _channel->declareRegion( eq::Viewport( normalized ));
-            _range = normalizedRange;
         }
 #ifndef NDEBUG
         _channel->outlineViewport();
@@ -515,13 +485,18 @@ public:
         applyCamera();
         EqRenderViewPtr renderView =
             boost::static_pointer_cast< EqRenderView >( _renderViewPtr );
-        RenderBricks& bricks = _renderSets.back();
+
+        RenderBricks& bricks = _renderSets.back().bricks;
         renderView->render( _frameInfo, bricks, *_glWidgetPtr );
         updateRegions( bricks );
+        if( useDBRenderMode( ))
+        {
+            _renderBox = _renderSets.back().worldBox;
+            eq::RenderContext context = _channel->getContext( );
+            setDBReadbackContext( context );
+            _image.setContext( context );
+        }
         _renderSets.pop_back();
-        eq::RenderContext context = _channel->getContext( );
-        context.range = _range;
-        _image.setContext( context );
     }
 
     void applyCamera()
@@ -654,12 +629,6 @@ public:
             frame->disableBuffer( eq::Frame::BUFFER_DEPTH );
     }
 
-    void setReadbackContext( eq::RenderContext& context )
-    {
-        // Set the range of the rendered images as the Z - range in the view space
-        context.range = _range;
-    }
-
     void frameAssemble( const eq::Frames& frames )
     {
         eq::PixelViewport coveredPVP;
@@ -720,6 +689,24 @@ public:
             eq::Compositor::assembleImage( op, _channel );
     }
 
+    void setDBReadbackContext( eq::RenderContext& context ) const
+    {
+        const Matrix4f& mvpMatrix = _frustum.getModelViewProjectionMatrix();
+        Boxf renderMVPBox = Boxf( Vector3f( mvpMatrix * _renderBox.getMin( )),
+                                  Vector3f( mvpMatrix * _renderBox.getMax( )));
+
+        // Encode AABBs of current render set in renderContext
+        context.frustum = Frustumf( renderMVPBox.getMin()[0], renderMVPBox.getMax()[0],
+                                    renderMVPBox.getMin()[1], renderMVPBox.getMax()[1],
+                                    renderMVPBox.getMin()[2], renderMVPBox.getMax()[2] );
+        context.ortho = Frustumf( _renderBox.getMin()[0], _renderBox.getMax()[0],
+                                  _renderBox.getMin()[1], _renderBox.getMax()[1],
+                                  _renderBox.getMin()[2], _renderBox.getMax()[2] );
+    }
+
+    bool useDBRenderMode() const
+        { return _channel->getRange() != eq::Range::ALL; }
+
     bool useDBSelfAssemble() const
         { return _image.getContext().range != eq::Range::ALL; }
 
@@ -762,12 +749,21 @@ public:
     {
         LBASSERT( !_channel->useOrtho( ));
         std::sort( ops.begin(), ops.end(), cmpRangesInc );
+#ifdef LOG_SORTLAST_DECOMPOSITION
+        for( const eq::ImageOp& op : ops )
+        {
+            Frustumf frustum = op.image->getContext().ortho;
+            Boxf box( Vector3f( frustum.left(), frustum.bottom(), frustum.nearPlane( )),
+                      Vector3f( frustum.right(), frustum.top(), frustum.farPlane( )));
+            logRenderSet( _frameCount - 1, box, "set", "ASSEMBLE" );
+        }
+#endif
     }
 
     livre::Channel* const _channel;
     eq::Image _image;
-    eq::Range _range;
     Frustum _frustum;
+    Boxf _renderBox;
     ViewPtr _renderViewPtr;
     GLWidgetPtr _glWidgetPtr;
     FrameGrabber _frameGrabber;
@@ -877,8 +873,12 @@ void Channel::frameReadback( const eq::uint128_t& frameId,
                              const eq::Frames& frames )
 {
     _impl->frameReadback( frames );
-    eq::RenderContext context = getContext( );
-    _impl->setReadbackContext( context );
+    if( _impl->useDBRenderMode( ))
+    {
+        eq::RenderContext readbackContext = getContext( );
+        _impl->setDBReadbackContext( readbackContext );
+        overrideContext( readbackContext );
+    }
     eq::Channel::frameReadback( frameId, frames );
 }
 
@@ -891,6 +891,5 @@ std::string Channel::getDumpImageFileName() const
              << dashTree->getRenderStatus().getFrameID() << ".png";
     return filename.str();
 }
-
 
 }

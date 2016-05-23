@@ -72,4 +72,11 @@ Vector3f LODNode::getRelativePosition() const
     return Vector3f( getAbsolutePosition( )) / float( 1 << getRefLevel( ));
 }
 
+Boxui LODNode::getAbsoluteWorldBox( ) const
+{
+    const uint32_t lodSize = 1u << ( INVALID_LEVEL - getRefLevel( ));
+    const Vector3f minCoord = lodSize * getAbsolutePosition();
+    return Boxui( minCoord, minCoord + Vector3ui( lodSize ));
+}
+
 }

@@ -19,12 +19,13 @@ with open(sys.argv[1], 'r') as f_input:
     for line in f_input:
         fields = line.split()
         #print('fields', fields)
-        assert len(fields) == 13
+        assert len(fields) == 14
 
-        channel_id = fields[0].replace("'", "")
-        frame_id = fields[1]
+        frame_id = fields[0]
+        channel_id = fields[1].replace("'", "")
         box_type = fields[2] + 's'
-        key = channel_id + '_' + box_type + '.f' + frame_id       
+        tag = fields[3]
+        key = channel_id + '_' + box_type + '_' + tag + '.f' + frame_id
         if int(frame_id) < start_frame or int(frame_id) > end_frame:
             print('Skipping box for frame', frame_id)
             continue
@@ -49,8 +50,8 @@ with open(sys.argv[1], 'r') as f_input:
         #print('frame = ', frame_id)
         #print('color_map = ', color_map)
 
-        corners = [ fields[4], fields[5], fields[6], 
-                    fields[9], fields[10], fields[11] ]
+        corners = [ fields[5], fields[6], fields[7], 
+                    fields[10], fields[11], fields[12] ]
         #print('corners', corners)
 
         print('# ---- box {0} ----'.format(box_count), file=f_output)

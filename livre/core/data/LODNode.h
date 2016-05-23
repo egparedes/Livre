@@ -82,6 +82,12 @@ public:
     LIVRECORE_API const Boxf& getWorldBox( ) const { return worldBox_; }
 
     /**
+     * @return The box in absolute coordinates of the given integer node coordinates
+     * translated to the finest level.
+     */
+    LIVRECORE_API Boxui getAbsoluteWorldBox( ) const;
+
+    /**
      * @return The tree level.
      */
     LIVRECORE_API int32_t getRefLevel( ) const { return nodeId_.getLevel(); }
