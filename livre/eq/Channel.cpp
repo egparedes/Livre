@@ -161,9 +161,6 @@ public:
           : _channel( channel )
           , _glWidgetPtr( new EqGLWidget( channel ))
           , _frameInfo( _frustum, INVALID_FRAME )
-#ifdef LOG_SORTLAST_DECOMPOSITION
-          , _frameCount( 0 )
-#endif
     {
         channel->setNearFar( nearPlane, farPlane );
         _image.setAlphaUsage( true );
@@ -235,19 +232,19 @@ public:
         glScissor( 0, 0, channelPvp.w, channelPvp.h );
     }
 
-#ifdef LOG_SORTLAST_DECOMPOSITION
-    void logRenderSet( const int frameCount,
-                       const Boxf& setBox,
-                       const std::string& element,
-                       const std::string& tag) const
+    void _logSortLastBox( const Boxf& setBox,
+                          const std::string& element,
+                          const std::string& tag ) const
     {
+#ifdef LOG_SORTLAST_DECOMPOSITION
+        int numFrame = _channel->getConfig()->getCurrentFrame();
         LBINFO << " [SORT-LAST] "
-               << std::setfill('0') << std::setw(3) << frameCount << std::setfill(' ') << std::setw(0)
+               << std::setfill('0') << std::setw(3) << numFrame << std::setfill(' ') << std::setw(0)
                << " '" << _channel->getName() << "' " << element << " " << tag << " "
                << setBox.getMin() << " "
                << setBox.getMax() << std::endl;
-    }
 #endif
+    }
 
     void generateRenderSets( const ConstCacheObjects& renderNodes,
                              RenderSets& renderSets )
@@ -282,9 +279,7 @@ public:
             const Boxui box = brick->getLODNode().getAbsoluteWorldBox();
             const Vector3ui& position = box.getMin();
             occupancyMap[position] = RenderSet({brick}, box, brick->getLODNode().getWorldBox( ));
-#ifdef LOG_SORTLAST_DECOMPOSITION
-            logRenderSet( _frameCount, occupancyMap[position].worldBox, "node", "RENDER" );
-#endif
+            _logSortLastBox( occupancyMap[position].worldBox, "node", "RENDER" );
         }
 
         // Merge adjacent compatible sets (greedy)
@@ -334,13 +329,8 @@ public:
         {
             const RenderSet& set = setIt->second;
             renderSets.push_back( set );
-#ifdef LOG_SORTLAST_DECOMPOSITION
-            logRenderSet( _frameCount, set.worldBox, "set", "RENDER" );
-#endif
+            _logSortLastBox( set.worldBox, "set", "RENDER" );
         }
-#ifdef LOG_SORTLAST_DECOMPOSITION
-        _frameCount++;
-#endif
     }
 
     DashRenderNodes requestData()
@@ -692,8 +682,8 @@ public:
     void setDBReadbackContext( eq::RenderContext& context ) const
     {
         const Matrix4f& mvpMatrix = _frustum.getModelViewProjectionMatrix();
-        Boxf renderMVPBox = Boxf( Vector3f( mvpMatrix * _renderBox.getMin( )),
-                                  Vector3f( mvpMatrix * _renderBox.getMax( )));
+        Boxf renderMVPBox = Boxf( mvpMatrix * _renderBox.getMin( ),
+                                  mvpMatrix * _renderBox.getMax( ));
 
         // Encode AABBs of current render set in renderContext
         context.frustum = Frustumf( renderMVPBox.getMin()[0], renderMVPBox.getMax()[0],
@@ -752,11 +742,20 @@ public:
 #ifdef LOG_SORTLAST_DECOMPOSITION
         for( const eq::ImageOp& op : ops )
         {
-            Frustumf frustum = op.image->getContext().ortho;
-            Boxf box( Vector3f( frustum.left(), frustum.bottom(), frustum.nearPlane( )),
-                      Vector3f( frustum.right(), frustum.top(), frustum.farPlane( )));
-            logRenderSet( _frameCount - 1, box, "set", "ASSEMBLE" );
+            Frustumf setBox = op.image->getContext().frustum;
+            Boxf box( Vector3f( setBox.left(), setBox.bottom(), setBox.nearPlane( )),
+                      Vector3f( setBox.right(), setBox.top(), setBox.farPlane( )));
+            _logSortLastBox( box, "set", "ASSEMBLE" );
         }
+
+//        livre::Config* configPtr = static_cast<livre::Config*>(_channel->getConfig());
+//        Vector3f camera = configPtr->getFrameData().getCameraSettings().getCameraPosition();
+//        Boxf nearBox( Vector3f( _frustum.left(), _frustum.bottom(), _frustum.nearPlane( )),
+//                      Vector3f( _frustum.right(), _frustum.top(), _frustum.nearPlane( ) + 0.01f ));
+//        _logSortLastBox( nearBox, "frustum", "ASSEMBLE" );
+//        Boxf farBox( Vector3f( _frustum.left() * , _frustum.bottom() * , _frustum.farPlane( ))),
+//                     Vector3f( _frustum.right() * , _frustum.top() *, _frustum.farPlane( ) + 0.01f )));
+//        _logSortLastBox( farBox, "frustum", "ASSEMBLE" );
 #endif
     }
 
@@ -769,9 +768,6 @@ public:
     FrameGrabber _frameGrabber;
     FrameInfo _frameInfo;
     RenderSets _renderSets;
-#ifdef LOG_SORTLAST_DECOMPOSITION
-    unsigned _frameCount;
-#endif
 };
 
 EqRenderView::EqRenderView( Channel* channel,

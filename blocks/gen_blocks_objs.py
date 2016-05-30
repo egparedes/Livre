@@ -10,10 +10,11 @@ input_file = sys.argv[1]
 start_frame = int(sys.argv[2])
 end_frame = int(sys.argv[3])
 
-color_maps = [ 'red', 'green', 'blue', 'grey', 'pink', 'purple', 'orange' ]
+color_count = 0
+colors = [ 'red', 'green', 'blue', 'grey', 'orange', 'purple', 'copper', 'pink' ]
 
 outputs = dict()
-channel_colors = dict()
+color_maps = dict()
 
 with open(sys.argv[1], 'r') as f_input:
     for line in f_input:
@@ -33,11 +34,16 @@ with open(sys.argv[1], 'r') as f_input:
         if key in outputs:
             f_output = outputs[key][0]
         else:
-            if channel_id not in channel_colors:
-                channel_colors[channel_id] = color_maps[len(channel_colors)]
+            colormap_id = channel_id + tag
+            if colormap_id not in color_maps:
+                if tag == 'ASSEMBLE':
+                    color_maps[colormap_id] = 'assemble'
+                else:
+                    color_maps[colormap_id] = colors[color_count]
+                    color_count += 1
 
             f_output = open(key + '.obj', 'w')
-            outputs[key] = [f_output, channel_colors[channel_id], 0]
+            outputs[key] = [f_output, color_maps[colormap_id], 0]
             obj_name = channel_id + '.' + box_type
             print('mtllib colormaps.mtl', file=f_output)
             print('o {0}'.format(obj_name), file=f_output)
