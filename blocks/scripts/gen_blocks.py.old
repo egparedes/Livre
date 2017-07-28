@@ -1,0 +1,16 @@
+#!/bin/bash
+
+maps=(ZERO red green blue grey pink purple orange)
+
+max_frame=$(cat *.log $f | sed -n -e "s/.*Convex subset (frame \([0-9]\+\).*/\1/p" | sort -n | tail -n 1)
+for frame_id in $(seq $max_frame); do
+	node_id=1
+	for f in $(ls *.log); do
+		echo "Generating blocks.${node_id}_${frame_id}.txt ..."
+		cat $f | grep "-Sort-last: convex subset (frame $1" | sed -e 's/[^[]*//' -e 's/[^0-9.]\+/ /g' > blocks.${node_id}_${frame_id}.txt
+		color_map=${maps[$node_id]}
+		echo "./gen_blocks_objs.py blocks.${node_id}_${frame_id}.txt $color_map"
+		./gen_blocks_objs.py blocks.${node_id}_${frame_id}.txt $color_map
+    	(( node_id=node_id+1 ))
+	done
+done
